@@ -75,11 +75,11 @@ export function Chat({ disabled, documentTitle }: Props) {
             {m.sources && m.sources.length > 0 && (
               <div className="mt-2 pt-2 border-t border-slate-200 text-[11px] text-slate-500">
                 <p className="font-semibold mb-1">📄 Fuentes:</p>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-2">
                   {m.sources.map((src, sidx) => (
                     <span
                       key={sidx}
-                      className="inline-block bg-brand-sky bg-opacity-10 text-brand-sky px-2 py-1 rounded"
+                      className="inline-block bg-slate-200 text-slate-700 px-2 py-1 rounded"
                     >
                       Pág. {src.page}
                     </span>

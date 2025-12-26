@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 
-from backend.app.deps import get_settings_instance, get_vectorstore
+from backend.app.deps import get_settings_instance, get_vectorstore, reset_vectorstore
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -18,6 +18,8 @@ async def upload_pdf(file: UploadFile = File(...)):
         )
 
     settings = get_settings_instance()
+    # Clean previous collection to avoid mixing across uploads
+    reset_vectorstore()
     vectorstore = get_vectorstore()
 
     try:

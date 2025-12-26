@@ -3,7 +3,14 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from langchain_core.prompts import ChatPromptTemplate
 
-from backend.app.deps import get_llm, get_retriever, get_settings_instance
+from backend.app.deps import (
+    get_llm,
+    get_retriever,
+    get_settings_instance,
+    get_study_context,
+    add_to_chat_history,
+    get_recent_history,
+)
 
 router = APIRouter(prefix="/ask", tags=["ask"])
 
@@ -35,6 +42,13 @@ Reglas de Comportamiento:
 
 5. Formato: Usa negritas para términos clave y listas con viñetas para pasos complejos."""
 """
+Regla de Persistencia:
+- Si el usuario indica que no sabe la respuesta o se siente perdido, NO cambies de tema. En su lugar, proporciona una pista pequeña (hint) basada en el contexto actual o haz una pregunta de opción múltiple para facilitar la respuesta (2–4 opciones).
+
+Transiciones:
+- Para mantener coherencia, usa frases de transición como: "No te preocupes, volvamos a lo que estábamos hablando sobre..." antes de continuar la explicación.
+"""
+"""
 Extensión de Estrategia (Modo Secuencial):
 
 6. Orden Secuencial: Prioriza el contenido de las páginas/segmentos más tempranos del documento. Construye la explicación desde lo general a lo específico, y de fundamentos a aplicaciones. Evita introducir temas avanzados si antes no has cubierto las bases.
@@ -58,7 +72,33 @@ async def ask_question(payload: AskRequest):
     llm = get_llm()
     settings = get_settings_instance()
 
-    docs = retriever.invoke(payload.question)
+    # Use recent conversation (last 3 messages) to condense the question
+    recent = get_recent_history(3)
+    history_text = "\n".join([f"{m['role']}: {m['content']}" for m in recent]) if recent else ""
+
+    condense_prompt = ChatPromptTemplate.from_template(
+        """
+        Reescribe la pregunta del usuario como una pregunta autocontenida y específica, manteniendo el mismo tema.
+        Si hay conversación reciente, úsala para NO cambiar de tema y preservar el foco.
+
+        Conversación reciente (máx. 3 mensajes):
+        {history}
+
+        Pregunta actual:
+        {question}
+
+        Pregunta autocontenida:
+        """
+    )
+    condense_chain = condense_prompt | llm
+    try:
+        condensed = condense_chain.invoke({"history": history_text, "question": payload.question})
+        condensed_q = getattr(condensed, "content", None) or str(condensed)
+    except Exception:
+        condensed_q = payload.question
+
+    # Retrieve using the condensed question
+    docs = retriever.invoke(condensed_q)
     if not docs:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -83,7 +123,10 @@ async def ask_question(payload: AskRequest):
         sources.append({"file": src, "page": page})
         context_blocks.append(f"Fuente: {src} (Página {page})\n{doc.page_content}")
 
-    context_text = "\n\n".join(context_blocks)
+    # Include study title from backend context to keep consistency
+    study_ctx = get_study_context()
+    doc_title = study_ctx.get("title", "Documento de Estudio")
+    context_text = f"Título del documento: {doc_title}\n\n" + "\n\n".join(context_blocks)
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -102,4 +145,17 @@ async def ask_question(payload: AskRequest):
 
     answer_text = result.content if hasattr(result, "content") else str(result)
 
-    return AskResponse(answer=answer_text, sources=sources)
+    # Deduplicate sources by page
+    unique_by_page = {}
+    for s in sources:
+        unique_by_page[str(s.get("page"))] = s  # keep first file for page
+    dedup_sources = list(unique_by_page.values())
+
+    # Update memory with this turn
+    try:
+        add_to_chat_history("user", payload.question)
+        add_to_chat_history("assistant", answer_text)
+    except Exception:
+        pass
+
+    return AskResponse(answer=answer_text, sources=dedup_sources)

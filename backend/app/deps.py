@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Optional
+import os
+import time
 
 from langchain_chroma import Chroma
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
@@ -20,8 +22,9 @@ _embeddings = AzureOpenAIEmbeddings(
     api_version=_settings.azure_api_version,
 )
 
+_collection_name = "rootmind"
 _vectorstore = Chroma(
-    collection_name="rootmind",
+    collection_name=_collection_name,
     embedding_function=_embeddings,
     persist_directory=str(_persist_dir),
 )
@@ -41,6 +44,29 @@ def get_vectorstore() -> Chroma:
 
 def get_retriever():
     return _vectorstore.as_retriever(search_kwargs={"k": _settings.top_k})
+
+
+def reset_vectorstore():
+    """Create a fresh collection name to avoid mixing data across uploads.
+    Keeps the persist directory intact to prevent readonly/lock issues.
+    """
+    global _vectorstore, _collection_name
+    try:
+        _persist_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(_persist_dir, 0o775)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"No se pudo preparar el directorio de Chroma: {e}")
+
+    # New collection per upload session
+    _collection_name = f"rootmind_{int(time.time())}"
+    _vectorstore = Chroma(
+        collection_name=_collection_name,
+        embedding_function=_embeddings,
+        persist_directory=str(_persist_dir),
+    )
 
 
 def get_llm(settings: Optional[Settings] = None) -> AzureChatOpenAI:
@@ -135,3 +161,19 @@ def get_study_context() -> dict:
 def set_study_context(context: dict):
     global _study_context
     _study_context = context
+
+# Simple in-memory chat history (single-session)
+_chat_history: list[dict] = []
+
+def add_to_chat_history(role: str, content: str):
+    # Keep last 20 messages
+    global _chat_history
+    _chat_history.append({"role": role, "content": content})
+    if len(_chat_history) > 20:
+        _chat_history = _chat_history[-20:]
+
+def get_chat_history() -> list[dict]:
+    return list(_chat_history)
+
+def get_recent_history(n: int = 3) -> list[dict]:
+    return _chat_history[-n:] if _chat_history else []
