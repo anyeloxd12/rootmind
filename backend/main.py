@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.deps import get_settings_instance
-from backend.routers import ask, upload
+from backend.routers import ask, upload, study
 
 app = FastAPI(title="RootMind Backend", version="0.1.0")
 
@@ -21,6 +21,7 @@ app.add_middleware(
 
 app.include_router(upload.router)
 app.include_router(ask.router)
+app.include_router(study.router)
 
 
 @app.get("/health")

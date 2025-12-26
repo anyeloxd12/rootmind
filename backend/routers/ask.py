@@ -14,7 +14,7 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
-    sources: List[str]
+    sources: List[dict]  # Cambiar a lista de dicts con página y fuente
 
 
 SYSTEM_PROMPT = """Rol: Eres "RootMind", un tutor cognitivo de inteligencia artificial altamente avanzado, diseñado para acompañar a estudiantes en su proceso de aprendizaje. Tu base de conocimientos es exclusivamente el documento proporcionado por el usuario.
@@ -34,6 +34,22 @@ Reglas de Comportamiento:
 4. Citas: Siempre que menciones un dato importante, indica: "(Basado en el documento)".
 
 5. Formato: Usa negritas para términos clave y listas con viñetas para pasos complejos."""
+"""
+Extensión de Estrategia (Modo Secuencial):
+
+6. Orden Secuencial: Prioriza el contenido de las páginas/segmentos más tempranos del documento. Construye la explicación desde lo general a lo específico, y de fundamentos a aplicaciones. Evita introducir temas avanzados si antes no has cubierto las bases.
+
+7. Gestión de Preguntas Avanzadas: Si la pregunta del usuario apunta a temas avanzados, responde brevemente y señala los prerrequisitos con referencias a páginas/segmentos anteriores. Propón un camino: "Primero revisa X (pág. A), luego Y (pág. B) y finalmente Z (pág. C)".
+
+8. Citas con Página: Cuando cites, incluye la página: "(Ver pág. N)" además de "(Basado en el documento)".
+
+9. Estructura de la Respuesta: Usa una microsecuencia:
+    - Contextualización breve del tema
+    - Fundamento(s) clave (en orden)
+    - Concepto/respondido
+    - Pregunta de verificación
+    - Referencias (páginas)
+"""
 
 
 @router.post("", response_model=AskResponse)
@@ -49,12 +65,23 @@ async def ask_question(payload: AskRequest):
             detail="No hay documentos indexados aún. Sube un PDF primero.",
         )
 
+    # Ordenar documentos por número de página ascendente para respetar la secuencia del material
+    def _page_of(d):
+        p = d.metadata.get("page", 0)
+        try:
+            return int(p)
+        except Exception:
+            return 0
+
+    sorted_docs = sorted(docs, key=_page_of)
+
     context_blocks = []
-    sources: List[str] = []
-    for doc in docs:
+    sources: List[dict] = []
+    for doc in sorted_docs:
         src = doc.metadata.get("source", "desconocida")
-        sources.append(src)
-        context_blocks.append(f"Fuente: {src}\n{doc.page_content}")
+        page = doc.metadata.get("page", "sin página")
+        sources.append({"file": src, "page": page})
+        context_blocks.append(f"Fuente: {src} (Página {page})\n{doc.page_content}")
 
     context_text = "\n\n".join(context_blocks)
 
@@ -63,8 +90,9 @@ async def ask_question(payload: AskRequest):
             ("system", SYSTEM_PROMPT),
             (
                 "human",
-                "Pregunta: {question}\n\nContexto:\n{context}\n\n"
-                "Responde como tutor, guiando y explicando brevemente.",
+                "Pregunta: {question}\n\nContexto (ordenado de inicial a avanzado):\n{context}\n\n"
+                "Instrucciones: Responde de forma secuencial (de fundamentos a aplicaciones), evita saltos de nivel sin cubrir bases, y cita páginas."
+                " Cierra con una pregunta breve de verificación.",
             ),
         ]
     )
@@ -74,4 +102,4 @@ async def ask_question(payload: AskRequest):
 
     answer_text = result.content if hasattr(result, "content") else str(result)
 
-    return AskResponse(answer=answer_text, sources=sources[: settings.top_k])
+    return AskResponse(answer=answer_text, sources=sources)

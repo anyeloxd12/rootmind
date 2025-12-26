@@ -52,3 +52,86 @@ def get_llm(settings: Optional[Settings] = None) -> AzureChatOpenAI:
         api_version=cfg.azure_api_version,
         temperature=0.2,
     )
+
+
+async def generate_study_context() -> dict:
+    """Genera un título creativo y plan de estudios desde el contenido del PDF."""
+    from langchain_core.prompts import ChatPromptTemplate
+    
+    try:
+        # Obtener una muestra del contenido del vector store
+        retriever = get_retriever()
+        sample_docs = retriever.invoke("conceptos principales temas importantes")
+        
+        if not sample_docs:
+            return {
+                "title": "Documento de Estudio",
+                "study_plan": [{"section": "Contenido", "objective": "Explorar el material proporcionado"}],
+            }
+        
+        # Concatenar el contenido de muestra
+        sample_content = "\n\n".join([doc.page_content[:500] for doc in sample_docs[:3]])
+        
+        # Prompt para generar título y plan
+        llm = get_llm()
+        prompt = ChatPromptTemplate.from_template(
+            """Analiza el siguiente contenido educativo y genera:
+
+1. Un título creativo y profesional para el documento (máximo 60 caracteres).
+2. Un plan de estudios estructurado en 5-7 secciones principales, donde cada sección tenga:
+   - Título descriptivo
+   - Objetivo de aprendizaje breve (una línea)
+
+Formato de respuesta (JSON válido):
+{{
+  "title": "Tu título aquí",
+  "study_plan": [
+    {{"section": "Sección 1", "objective": "Objetivo 1"}},
+    {{"section": "Sección 2", "objective": "Objetivo 2"}}
+  ]
+}}
+
+Contenido a analizar:
+{content}"""
+        )
+        
+        chain = prompt | llm
+        result = chain.invoke({"content": sample_content})
+        
+        # Parsear la respuesta JSON
+        import json
+        import re
+        
+        # Extraer JSON de la respuesta
+        json_match = re.search(r'\{.*\}', result.content, re.DOTALL)
+        if json_match:
+            study_context = json.loads(json_match.group())
+            return study_context
+        else:
+            return {
+                "title": "Documento de Estudio",
+                "study_plan": [{"section": "Contenido", "objective": "Explorar el material proporcionado"}],
+            }
+    except Exception as e:
+        print(f"Error generando contexto de estudio: {e}")
+        return {
+            "title": "Documento de Estudio",
+            "study_plan": [{"section": "Contenido", "objective": "Explorar el material proporcionado"}],
+        }
+
+
+# Variable global para almacenar el contexto de estudio
+_study_context = None
+
+
+def get_study_context() -> dict:
+    global _study_context
+    return _study_context or {
+        "title": "Documento de Estudio",
+        "study_plan": [],
+    }
+
+
+def set_study_context(context: dict):
+    global _study_context
+    _study_context = context

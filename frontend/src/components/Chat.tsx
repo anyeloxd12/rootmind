@@ -4,13 +4,15 @@ import { askQuestion } from "../lib/api";
 type Message = {
   role: "user" | "assistant";
   content: string;
+  sources?: Array<{ file: string; page: string | number }>;
 };
 
 type Props = {
   disabled?: boolean;
+  documentTitle?: string;
 };
 
-export function Chat({ disabled }: Props) {
+export function Chat({ disabled, documentTitle }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,7 +29,14 @@ export function Chat({ disabled }: Props) {
     try {
       const res = await askQuestion(q);
       const answer = res.answer || "Sin respuesta";
-      setMessages((prev) => [...prev, { role: "assistant", content: answer }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: answer,
+          sources: res.sources,
+        },
+      ]);
     } catch (err) {
       const e = err as Error;
       setError(e.message);
@@ -40,7 +49,7 @@ export function Chat({ disabled }: Props) {
     <div className="glass p-4 rounded-xl shadow-sm border border-brand-mist h-full flex flex-col">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <p className="text-sm font-semibold">Chat de estudio</p>
+          <p className="text-sm font-semibold">Chat de estudio{documentTitle ? `: ${documentTitle}` : ""}</p>
           <p className="text-xs text-slate-500">Haz preguntas sobre tu PDF.</p>
         </div>
         {loading && <span className="text-xs text-brand-ink">Pensando…</span>}
@@ -53,7 +62,7 @@ export function Chat({ disabled }: Props) {
         {messages.map((m, idx) => (
           <div
             key={idx}
-            className={`rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
+            className={`rounded-lg px-3 py-2 text-sm ${
               m.role === "user"
                 ? "bg-brand-mist text-brand-ink self-end"
                 : "bg-white text-slate-800 border border-slate-100"
@@ -62,7 +71,22 @@ export function Chat({ disabled }: Props) {
             <span className="block text-[11px] uppercase tracking-wide text-slate-500 mb-1">
               {m.role === "user" ? "Tú" : "RootMind"}
             </span>
-            {m.content}
+            <p className="whitespace-pre-wrap">{m.content}</p>
+            {m.sources && m.sources.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-slate-200 text-[11px] text-slate-500">
+                <p className="font-semibold mb-1">📄 Fuentes:</p>
+                <div className="flex flex-wrap gap-1">
+                  {m.sources.map((src, sidx) => (
+                    <span
+                      key={sidx}
+                      className="inline-block bg-brand-sky bg-opacity-10 text-brand-sky px-2 py-1 rounded"
+                    >
+                      Pág. {src.page}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -1,8 +1,18 @@
 import { useState } from "react";
-import { uploadPdf } from "../lib/api";
+import { uploadPdf, generateStudyMetadata } from "../lib/api";
+
+type StudyPlan = {
+  section: string;
+  objective: string;
+};
 
 type Props = {
-  onUploaded?: (info: { chunks: number; persistDir: string }) => void;
+  onUploaded?: (info: {
+    chunks: number;
+    persistDir: string;
+    title: string;
+    studyPlan?: StudyPlan[];
+  }) => void;
 };
 
 export function Upload({ onUploaded }: Props) {
@@ -16,11 +26,17 @@ export function Upload({ onUploaded }: Props) {
     setMessage("");
     try {
       const result = await uploadPdf(file);
+      
+      // Generar metadatos del estudio
+      const metadata = await generateStudyMetadata();
+      
       setStatus("done");
       setMessage(`Chunks indexados: ${result.chunks_added}`);
       onUploaded?.({
         chunks: result.chunks_added,
         persistDir: result.persist_dir,
+        title: metadata.title,
+        studyPlan: metadata.study_plan,
       });
     } catch (err) {
       const error = err as Error;
